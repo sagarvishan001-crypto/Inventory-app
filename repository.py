@@ -91,4 +91,4 @@ def place_order(user_id, items):
                     "VALUES (%s, %s, %s,%s)",
                     (order_id, product_id, qty, price),
                 )
-                return order_id
+            return order_id

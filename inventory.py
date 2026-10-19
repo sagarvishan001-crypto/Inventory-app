@@ -27,6 +27,8 @@ def main():
 
         elif choice == "3":
             try:
+                # for row in repository.list_products():
+                #     print(row)
                 product_id = int(input("Product id: "))
                 new_stock = int(input("New stock: "))
 
