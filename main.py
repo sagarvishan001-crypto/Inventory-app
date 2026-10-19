@@ -1,6 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List
+from fastapi import Depends
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+import jwt
+import auth
 
 import psycopg
 import repository
@@ -20,8 +24,12 @@ class OrderItemIn(BaseModel):
     quantity: int = Field(ge=0)
 
 class OrderIn(BaseModel):
-    user_id: int
     items: list[OrderItemIn] = Field(min_length=1)
+
+class RegisterIn(BaseModel):
+    email: str = Field(min_length=3)
+    password: str = Field(min_length=8)
+
 
 @app.get("/health")
 def health():
@@ -34,7 +42,6 @@ def get_products():
         {"id": r[0], "name": r[1], "price": float(r[2]), "stock": r[3]}
         for r in rows
     ]
-
 
 @app.post("/products", status_code=201)
 def create_product(product: ProductIn):
@@ -64,15 +71,40 @@ def delete_product(product_id : int):
         raise HTTPException(status_code= 406, detail = "Product not found")
     return {"id": product_id}
 
+@app.post("/register", status_code=201)
+def register(body: RegisterIn):
+    try:
+        user_id = repository.create_user(body.email, auth.hash_password(body.password))
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail = "User already registered")
+    return {"id": user_id, "email": body.email}
+
+@app.post("/login")
+def login( form: OAuth2PasswordRequestForm = Depends()):
+    user = repository.get_user_by_email(form.username)
+    if user is None or not auth.verify_password(form.password, user[2]):
+        raise HTTPException( status_code=401, detail = "Invalid email or password")
+    return {"access_token": auth.create_token(user[0], user[3]), "token_type": "bearer"}
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl = "login")
+
+def current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        payload = auth.decode_token(token)
+    except jwt.PyJWTError:
+        raise HTTPException( status_code=401, detail = "Invalid or expired token")
+    return {"id": int(payload["sub"]), "role": payload["role"]}
+
 @app.post("/orders", status_code=201)
-def create_order(order: OrderIn):
+def create_order(order: OrderIn, user: dict = Depends(current_user)):
     items = [(i.product_id, i.quantity) for i in order.items]
     try:
-        order_id = repository.place_order(order.user_id, items)
+        order_id = repository.place_order(user["id"], items)
     except repository.InsufficientStock as e:
         raise HTTPException(status = 409, detail = str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
-    except psycopg.errors.ForeignKeyViolation:
-        raise HTTPException(status_code=404, detail="User does not exist")
+    # except psycopg.errors.ForeignKeyViolation:
+    #     raise HTTPException(status_code=404, detail="User does not exist")
     return {"order_id": order_id}
+

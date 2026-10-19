@@ -92,3 +92,21 @@ def place_order(user_id, items):
                     (order_id, product_id, qty, price),
                 )
             return order_id
+
+def create_user(email, password_hash):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO users (email, password_hash) VALUES (%s, %s) RETURNING id",
+                (email, password_hash),
+            )
+            return cur.fetchone()[0]
+
+def get_user_by_email(email):
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, email, password_hash, role FROM users WHERE email = %s",
+            (email, ),
+            )
+            return cur.fetchone()
