@@ -43,41 +43,6 @@ def get_products():
         for r in rows
     ]
 
-@app.post("/products", status_code=201)
-def create_product(product: ProductIn):
-    try:
-        new_id = repository.add_product(product.name, product.price, product.stock)
-    except psycopg.errors.UniqueViolation:
-        raise HTTPException(status_code=409, detail = "Product already exists" )
-    return {"id": new_id, **product.model_dump()}
-
-@app.put("/products/{product_id}/stock")
-def update_product(product_id : int, product: StockIn):
-    try:
-        updated = repository.update_stock(product_id, product.new_stock)
-    except psycopg.errors.UniqueViolation:
-        raise HTTPException(status_code=422, detail = "Stock cannot be negetive")
-    if updated == 0:
-        raise HTTPException(status_code=404, detail = "Product not found")
-    return {"id": product_id, "Stock": product.new_stock}
-
-@app.delete("/products/{product_id}")
-def delete_product(product_id : int):
-    try:
-        deleted = repository.delete_product(product_id)
-    except psycopg.errors.UniqueViolation:
-        raise HTTPException(status_code=405, detail= "Enter valid product id")
-    if deleted == 0:
-        raise HTTPException(status_code= 406, detail = "Product not found")
-    return {"id": product_id}
-
-@app.post("/register", status_code=201)
-def register(body: RegisterIn):
-    try:
-        user_id = repository.create_user(body.email, auth.hash_password(body.password))
-    except psycopg.errors.UniqueViolation:
-        raise HTTPException(status_code=409, detail = "User already registered")
-    return {"id": user_id, "email": body.email}
 
 @app.post("/login")
 def login( form: OAuth2PasswordRequestForm = Depends()):
@@ -94,6 +59,50 @@ def current_user(token: str = Depends(oauth2_scheme)):
     except jwt.PyJWTError:
         raise HTTPException( status_code=401, detail = "Invalid or expired token")
     return {"id": int(payload["sub"]), "role": payload["role"]}
+
+def require_admin(user: dict = Depends(current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail = "Admin access required")
+    return user
+
+@app.post("/products", status_code=201)
+def create_product(product: ProductIn, admin: dict = Depends(require_admin)):
+    try:
+        new_id = repository.add_product(product.name, product.price, product.stock)
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail = "Product already exists" )
+    return {"id": new_id, **product.model_dump()}
+
+@app.put("/products/{product_id}/stock")
+def update_product(product_id : int, product: StockIn, admin: dict = Depends(require_admin)):
+    try:
+        updated = repository.update_stock(product_id, product.new_stock)
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=422, detail = "Stock cannot be negetive")
+    if updated == 0:
+        raise HTTPException(status_code=404, detail = "Product not found")
+    return {"id": product_id, "Stock": product.new_stock}
+
+@app.delete("/products/{product_id}")
+def delete_product(product_id : int, admin: dict = Depends(require_admin)):
+    try:
+        deleted = repository.delete_product(product_id)
+    except psycopg.errors.ForeignKeyViolation:
+        raise HTTPException(status_code=409, detail = "Product appears in existing orders and cannot be deleted")
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=405, detail= "Enter valid product id")
+    if deleted == 0:
+        raise HTTPException(status_code= 406, detail = "Product not found")
+    return {"id": product_id}
+
+@app.post("/register", status_code=201)
+def register(body: RegisterIn):
+    try:
+        user_id = repository.create_user(body.email, auth.hash_password(body.password))
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail = "User already registered")
+    return {"id": user_id, "email": body.email}
+
 
 @app.post("/orders", status_code=201)
 def create_order(order: OrderIn, user: dict = Depends(current_user)):
