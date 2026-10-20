@@ -110,7 +110,7 @@ def create_order(order: OrderIn, user: dict = Depends(current_user)):
     try:
         order_id = repository.place_order(user["id"], items)
     except repository.InsufficientStock as e:
-        raise HTTPException(status = 409, detail = str(e))
+        raise HTTPException(status_code = 409, detail = str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     # except psycopg.errors.ForeignKeyViolation:
